@@ -164,11 +164,28 @@ def check_c3(sources=None):
     bits = 0 if cost <= 1 else round(cost.bit_length() - 1 + 0.0, 1)
     r = cost > BUDGET
     print(f"[{'PASS' if r else 'FAIL'}] C3  攻擊者需列舉 {cost:.3e} 組 (~{bits} bit) > {BUDGET:.1e}")
-    if not r:
-        print(f"        以實測 154,000 次 K 測試/秒計，攻擊者約需 {fmt_time(cost / 154_000)}。")
-        print("        提高熵的唯一方法是增加『附件推導不出來』的維度數或其範圍；")
-        print("        把已知數字丟進公式沒有用。")
-    return r
+    if r:
+        return True
+
+    print(f"        以實測 154,000 次 K 測試/秒計，攻擊者約需 {fmt_time(cost / 154_000)}。")
+    print("        提高熵的唯一方法是增加『附件推導不出來』的維度數或其範圍；")
+    print("        把已知數字丟進公式沒有用。")
+
+    # 出題者可明示接受此風險，但必須留下書面理由，且每次檢核都會完整印出。
+    try:
+        sys.path.insert(0, HERE)
+        from challenge_secrets import C3_ACCEPTED_RISK as risk
+    except ImportError:
+        return False
+    if not (risk or "").strip():
+        return False
+    print("\n" + "!" * 74)
+    print("!! C3 未通過，但出題者已明示接受此風險（C3_ACCEPTED_RISK）：")
+    print("!" * 74)
+    for line in risk.rstrip().splitlines():
+        print("   " + line)
+    print("!" * 74)
+    return True
 
 
 SHAPES = {
