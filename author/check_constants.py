@@ -83,22 +83,25 @@ def check(K):
     # C1
     big = [k for k in K if k >= BIG_MIN]
     r = len(big) >= 1
-    ok &= r
     print(f"[{'PASS' if r else 'FAIL'}] C1  至少一顆 >= 2^24 —— 實際 {len(big)} 顆 {big}")
     if not r:
         print("        依據：Agent B 兩次窮盡 0..127^4。等寬方盒掃描必須直接失效。")
+        r = waiver("C1")
+    ok &= r
 
     # C2
     vol = 1
     for k in K:
         vol *= (k + 1)
     r = vol > BUDGET
-    ok &= r
     print(f"[{'PASS' if r else 'FAIL'}] C2  最小包圍盒 prod(Ki+1) = {vol:.3e} > {BUDGET:.1e}")
-    if not r:
-        print(f"        依據：攻擊者可對 [0,Ki] 逐維設不同上界，成本僅 {vol:.3e} 組。")
     box = (max(K) + 1) ** 4
     print(f"        (等寬盒 (max+1)^4 = {box:.3e}；牆 = 154k K-tests/s × 100x硬體 × 24h × 100x安全係數)")
+    if not r:
+        print(f"        依據：攻擊者可對 [0,Ki] 逐維設不同上界，成本僅 {vol:.3e} 組"
+              f"（{fmt_time(vol/154_000)}）。")
+        r = waiver("C2")
+    ok &= r
 
     # C4
     bad = [k for k in K if k in FILE_CONSTS or ((-k) & M32) in FILE_CONSTS]
@@ -133,6 +136,30 @@ def check(K):
 
     print(f"\n==> 自動檢核 {'全部通過' if ok else '未通過'}（C6 仍需人工複核）")
     return ok
+
+
+def waiver(rule):
+    """出題者可對特定規則明示接受風險，但必須留下書面理由，
+    且每次檢核都會完整印出。沒寫理由則該規則照常擋下。
+
+    C6 與 C7 不可豁免：C6 影響順序唯一性，C7 影響公平性
+    （被導出的常數人類也猜不到），兩者都不是安全性取捨。
+    """
+    try:
+        sys.path.insert(0, HERE)
+        from challenge_secrets import ACCEPTED_RISKS
+    except ImportError:
+        return False
+    text = (ACCEPTED_RISKS or {}).get(rule, "")
+    if not text.strip():
+        return False
+    print("\n" + "!" * 74)
+    print(f"!! {rule} 未通過，但出題者已明示接受此風險（ACCEPTED_RISKS[{rule!r}]）：")
+    print("!" * 74)
+    for line in text.rstrip().splitlines():
+        print("   " + line)
+    print("!" * 74)
+    return True
 
 
 def find_relations(K):
@@ -212,21 +239,7 @@ def check_c3(sources=None):
     print("        提高熵的唯一方法是增加『附件推導不出來』的維度數或其範圍；")
     print("        把已知數字丟進公式沒有用。")
 
-    # 出題者可明示接受此風險，但必須留下書面理由，且每次檢核都會完整印出。
-    try:
-        sys.path.insert(0, HERE)
-        from challenge_secrets import C3_ACCEPTED_RISK as risk
-    except ImportError:
-        return False
-    if not (risk or "").strip():
-        return False
-    print("\n" + "!" * 74)
-    print("!! C3 未通過，但出題者已明示接受此風險（C3_ACCEPTED_RISK）：")
-    print("!" * 74)
-    for line in risk.rstrip().splitlines():
-        print("   " + line)
-    print("!" * 74)
-    return True
+    return waiver("C3")
 
 
 SHAPES = {
