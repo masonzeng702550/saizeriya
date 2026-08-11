@@ -8,6 +8,7 @@ author/ANSWERS.txt
 
 # 建置產物
 author/build_table
+author/solve_ref
 *.o
 __pycache__/
 *.pyc
