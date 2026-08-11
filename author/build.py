@@ -25,8 +25,8 @@ FLAG = C.FLAG  # 來自 challenge_secrets.py
 RESIDENTS = ["yaniko", "yakuko", "hameko", "kaoruko", "aruko"]
 
 PARAMS = {
-    "poc": dict(PWLEN=8, CHAIN_LEN=256),
-    "prod": dict(PWLEN=12, CHAIN_LEN=1024),
+    "poc": dict(PWLEN=8, CHAIN_LEN=256, TRUNC=4),
+    "prod": dict(PWLEN=14, CHAIN_LEN=16384, TRUNC=8),
 }
 
 
@@ -35,6 +35,7 @@ def apply_params(mode):
     C.PWLEN = p["PWLEN"]
     C.N = len(C.CHARSET) ** C.PWLEN
     C.CHAIN_LEN = p["CHAIN_LEN"]
+    C.TRUNC = p["TRUNC"]
     if C.N % C.CHAIN_LEN:
         raise SystemExit(f"N={C.N} 不能被 t={C.CHAIN_LEN} 整除")
     C.NUM_CHAINS = C.N // C.CHAIN_LEN
@@ -48,8 +49,8 @@ def build_table_python():
         if c % 1000 == 0:
             print(f"  chain {c}/{C.NUM_CHAINS}", file=sys.stderr)
     with open(os.path.join(DIST, "nyan.tbl"), "w") as f:
-        for s, e in rows:
-            f.write(f"{s}\t{e}\n")
+        for _, e in rows:
+            f.write(e[: C.TRUNC] + "\n")
 
 
 def build_table_c():
@@ -61,7 +62,7 @@ def build_table_c():
             check=True,
         )
     subprocess.run(
-        [exe, str(C.PWLEN), str(C.CHAIN_LEN), str(C.NUM_CHAINS)]
+        [exe, str(C.PWLEN), str(C.TRUNC), str(C.CHAIN_LEN), str(C.NUM_CHAINS)]
         + [str(k) for k in C.K_TRUE]
         + [os.path.join(DIST, "nyan.tbl"), str(os.cpu_count() or 4)],
         check=True,
@@ -93,6 +94,9 @@ def render_readme(mode):
         "@NPW@": str(C.CHAIN_LEN + 1),
         "@NMID@": str(C.CHAIN_LEN - 1),
         "@NCHAINS@": f"{C.NUM_CHAINS:,}",
+        "@TRUNC@": str(C.TRUNC),
+        "@NTRUNC@": f"{6 ** C.TRUNC:,}",
+        "@AVGDUP@": f"{C.NUM_CHAINS / 6 ** C.TRUNC:.2f}",
     }
     for k, v in subs.items():
         tpl = tpl.replace(k, v)

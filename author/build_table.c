@@ -4,9 +4,10 @@
  *
  *   cc -O3 -march=native -pthread -o build_table build_table.c
  *   ./build_table --selftest
- *   ./build_table PWLEN t m K1 K2 K3 K4 out.tbl [threads]
+ *   ./build_table PWLEN TRUNC t m K1 K2 K3 K4 out.tbl [threads]
  *
- * 輸出格式：固定寬度記錄，每筆 "start\tend\n" 共 (2*PWLEN+2) bytes，
+ * 輸出格式：固定寬度記錄，每筆只有截斷到 TRUNC 個字元的 endpoint + '\n'。
+ * start 不存——第 c 行就是第 c 條鏈，起點為 idx_to_pw(c)。
  * 以 pwrite 依 chain index 定位，因此多執行緒輸出順序仍為 c = 0..m-1。
  */
 
@@ -27,6 +28,7 @@ static const uint64_t RSTEP = 0x9E3779B9ULL;
 static const uint64_t M40 = (1ULL << 40) - 1;
 
 static int PWLEN;
+static int TRUNC;   /* endpoint 截斷長度 */
 static uint64_t NSPACE; /* 6^PWLEN */
 static uint64_t CHAIN_LEN;
 static uint64_t NCHAINS;
@@ -102,9 +104,7 @@ static void *worker(void *arg) {
             for (uint64_t i = 0; i < CHAIN_LEN; i++)
                 reduce_at(yani40(pw, PWLEN), i, pw);
             char *rec = buf + (size_t)(c - lo) * RECLEN;
-            memcpy(rec, start, PWLEN);
-            rec[PWLEN] = '\t';
-            memcpy(rec + PWLEN + 1, pw, PWLEN);
+            memcpy(rec, pw, TRUNC);          /* 只留截斷後的 endpoint */
             rec[RECLEN - 1] = '\n';
         }
         size_t nb = (size_t)(hi - lo) * RECLEN;
@@ -152,32 +152,35 @@ static int selftest(void) {
 
 int main(int argc, char **argv) {
     if (argc == 2 && !strcmp(argv[1], "--selftest")) return selftest();
-    if (argc < 9) {
+    if (argc < 10) {
         fprintf(stderr,
-            "usage: %s PWLEN t m K1 K2 K3 K4 out.tbl [threads]\n"
+            "usage: %s PWLEN TRUNC t m K1 K2 K3 K4 out.tbl [threads]\n"
             "       %s --selftest\n", argv[0], argv[0]);
         return 2;
     }
     PWLEN = atoi(argv[1]);
-    CHAIN_LEN = strtoull(argv[2], NULL, 0);
-    NCHAINS = strtoull(argv[3], NULL, 0);
-    for (int i = 0; i < 4; i++) K[i] = (uint32_t)strtoul(argv[4 + i], NULL, 0);
-    const char *outpath = argv[8];
-    int nthreads = argc > 9 ? atoi(argv[9]) : (int)sysconf(_SC_NPROCESSORS_ONLN);
+    TRUNC = atoi(argv[2]);
+    CHAIN_LEN = strtoull(argv[3], NULL, 0);
+    NCHAINS = strtoull(argv[4], NULL, 0);
+    for (int i = 0; i < 4; i++) K[i] = (uint32_t)strtoul(argv[5 + i], NULL, 0);
+    const char *outpath = argv[9];
+    int nthreads = argc > 10 ? atoi(argv[10]) : (int)sysconf(_SC_NPROCESSORS_ONLN);
     if (PWLEN < 1 || PWLEN > 20) { fprintf(stderr, "bad PWLEN\n"); return 2; }
+    if (TRUNC < 1 || TRUNC > PWLEN) { fprintf(stderr, "bad TRUNC\n"); return 2; }
 
     NSPACE = 1;
     for (int i = 0; i < PWLEN; i++) NSPACE *= 6;
-    RECLEN = 2 * PWLEN + 2;
+    RECLEN = TRUNC + 1;
 
     OUTFD = open(outpath, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (OUTFD < 0) { perror("open"); return 1; }
     if (ftruncate(OUTFD, (off_t)NCHAINS * RECLEN)) { perror("ftruncate"); return 1; }
 
     fprintf(stderr,
-        "PWLEN=%d N=6^%d=%" PRIu64 " t=%" PRIu64 " m=%" PRIu64
+        "PWLEN=%d TRUNC=%d N=6^%d=%" PRIu64 " t=%" PRIu64 " m=%" PRIu64
         " K=(%u,%u,%u,%u) threads=%d\n",
-        PWLEN, PWLEN, NSPACE, CHAIN_LEN, NCHAINS, K[0], K[1], K[2], K[3], nthreads);
+        PWLEN, TRUNC, PWLEN, NSPACE, CHAIN_LEN, NCHAINS,
+        K[0], K[1], K[2], K[3], nthreads);
 
     struct timespec t0, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);

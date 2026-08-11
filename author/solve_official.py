@@ -1,14 +1,20 @@
-"""官方解 —— 只讀 dist/ 的檔案，模擬玩家視角。
+"""官方解 / 驗收 —— 只讀 dist/ 的檔案，模擬玩家視角。
 
-Step 1  用 nyan.tbl 的任一條鏈當 oracle，還原 K1..K4（候選只有梗裡那幾個數字）
-Step 2  標準彩虹表查詢還原五個明文（t^2/2 次雜湊，不是爆破 keyspace）
-Step 3  解 flag.enc
+Step 1  從 dist/ 自我推導參數（PWLEN 讀 yanihash.py；m/TRUNC 讀表；t = N/m）
+Step 2  用 3 條鏈驗證 K（單鏈只有 ~20.7 bit 約束，會有偽陽性）
+Step 3  呼叫 ./solve_ref（C）做彩虹表查詢
+Step 4  推導金鑰、驗 HMAC tag、解出 flag
+
+    python3 solve_official.py                  # K 讀 challenge_secrets.py
+    python3 solve_official.py 21 20 24 108000  # 或由命令列指定
+
+v1.4 起查詢量約 2.6e9 次雜湊，CPython 需數小時，故重運算交給 solve_ref.c。
 """
 
 import hashlib
 import hmac
-import itertools
 import os
+import subprocess
 import sys
 import time
 
@@ -18,28 +24,15 @@ sys.path.insert(0, DIST)
 
 import yanihash as Y  # noqa: E402
 
-# 鏈長由表的行數反推：m * t = N，所以 t = N / m。與 poc / prod 規模無關。
-CHAIN_LEN = None
-
-# 候選數字池 = 玩家從作品蒐集到的數字。
-#   1) 命令列指定：solve_official.py N1 N2 N3 ... （從作品蒐集到的數字）
-#   2) 否則讀 author/challenge_secrets.py 的 CANDIDATE_POOL
-if len(sys.argv) > 1:
-    POOL = [int(x, 0) for x in sys.argv[1:]]
-else:
-    sys.path.insert(0, HERE)
-    from challenge_secrets import CANDIDATE_POOL as POOL  # noqa: E402
-
-VERIFY_CHAINS = 3  # 單鏈僅 ~20.7 bit 約束，必須多鏈交叉驗證
+VERIFY_CHAINS = 3
 
 
-def load_table():
-    rows = []
-    with open(os.path.join(DIST, "nyan.tbl")) as f:
-        for line in f:
-            s, e = line.rstrip("\n").split("\t")
-            rows.append((s, e))
-    return rows
+def idx_to_pw(idx):
+    out = []
+    for _ in range(Y.PWLEN):
+        out.append(Y.CHARSET[idx % 6])
+        idx //= 6
+    return "".join(out)
 
 
 def walk(pw, steps, K, i0=0):
@@ -48,27 +41,19 @@ def walk(pw, steps, K, i0=0):
     return pw
 
 
-def recover_K(rows):
-    """用前 VERIFY_CHAINS 條鏈當 oracle。一條鏈只有 ~20.7 bit 約束，
-    單鏈驗證會出現大量偽陽性（實測：2.7e8 候選撞出 64 個）。"""
-    probes = rows[:VERIFY_CHAINS]
-    tried = 0
-    for K in itertools.permutations(POOL, 4):
-        tried += 1
-        if all(walk(s, CHAIN_LEN, K) == e for s, e in probes):
-            return K, tried
-    return None, tried
-
-
-def lookup(h, rows, endmap, K):
-    for j in range(CHAIN_LEN - 1, -1, -1):
-        cand = Y.reduce_at(h, j)
-        cand = walk(cand, CHAIN_LEN - 1 - j, K, j + 1)
-        for c in endmap.get(cand, ()):
-            pw = walk(rows[c][0], j, K)
-            if Y.yani40(pw.encode(), K) == h:
-                return pw
-    return None
+def table_params():
+    path = os.path.join(DIST, "nyan.tbl")
+    size = os.path.getsize(path)
+    with open(path) as f:
+        first = f.readline()
+    reclen = len(first)
+    trunc = reclen - 1
+    if size % reclen:
+        raise SystemExit(f"表大小 {size} 不是紀錄長度 {reclen} 的倍數")
+    m = size // reclen
+    if Y.N % m:
+        raise SystemExit(f"N={Y.N} 不能被 m={m} 整除")
+    return m, Y.N // m, trunc
 
 
 def keystream(key, n):
@@ -81,19 +66,27 @@ def keystream(key, n):
 
 def main():
     t0 = time.time()
-    rows = load_table()
-    global CHAIN_LEN
-    CHAIN_LEN = Y.N // len(rows)
-    print(f"[*] table: {len(rows):,} chains, PWLEN={Y.PWLEN}, t={CHAIN_LEN}")
 
-    K, tried = recover_K(rows)
-    assert K, "K not recovered"
-    print(f"[+] K = {K}   (tried {tried} permutations, {time.time()-t0:.2f}s)")
+    if len(sys.argv) > 1:
+        K = tuple(int(x, 0) for x in sys.argv[1:5])
+    else:
+        sys.path.insert(0, HERE)
+        from challenge_secrets import K_TRUE as K
 
-    endmap = {}
-    for i, (_, e) in enumerate(rows):
-        endmap.setdefault(e, []).append(i)
+    m, t, trunc = table_params()
+    print(f"[*] PWLEN={Y.PWLEN}  N={Y.N:,}  m={m:,}  t={t}  TRUNC={trunc}")
+    print(f"[*] 截斷造成的平均重複： {m / 6 ** trunc:.2f} 條鏈/桶")
 
+    # --- 驗證 K：第 c 行的 start 是 idx_to_pw(c)，走 t 步應等於該行的截斷 endpoint
+    with open(os.path.join(DIST, "nyan.tbl")) as f:
+        ends = [f.readline().rstrip("\n") for _ in range(VERIFY_CHAINS)]
+    for c, want in enumerate(ends):
+        got = walk(idx_to_pw(c), t, K)[:trunc]
+        if got != want:
+            raise SystemExit(f"[!] K={K} 驗證失敗：chain {c} 得到 {got}，表上是 {want}")
+    print(f"[+] K = {K} 通過 {VERIFY_CHAINS} 條鏈驗證  ({time.time()-t0:.2f}s)")
+
+    # --- 讀 shadow
     users, hashes = [], []
     with open(os.path.join(DIST, "shadow.txt")) as f:
         for line in f:
@@ -101,22 +94,45 @@ def main():
                 continue
             u, hx = line.strip().split(":")
             users.append(u)
-            hashes.append(bytes.fromhex(hx))
+            hashes.append(hx)
 
-    plaintexts = []
-    for u, h in zip(users, hashes):
-        t1 = time.time()
-        pw = lookup(h, rows, endmap, K)
-        assert pw, f"lookup failed for {u}"
-        plaintexts.append(pw)
-        print(f"[+] {u:8s} {pw}   ({time.time()-t1:.2f}s)")
+    # --- 呼叫 C 查詢器
+    exe = os.path.join(HERE, "solve_ref")
+    if not os.path.exists(exe) or os.path.getmtime(exe) < os.path.getmtime(
+        os.path.join(HERE, "solve_ref.c")
+    ):
+        print("[*] compiling solve_ref.c ...")
+        subprocess.run(
+            ["cc", "-O3", "-pthread", "-o", exe, os.path.join(HERE, "solve_ref.c")],
+            check=True,
+        )
+    t1 = time.time()
+    res = subprocess.run(
+        [exe, str(Y.PWLEN), str(trunc), str(t), str(m)]
+        + [str(k) for k in K]
+        + [os.path.join(DIST, "nyan.tbl")]
+        + hashes
+        + [str(os.cpu_count() or 4)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    plaintexts = res.stdout.split()
+    print(res.stderr.rstrip())
+    if len(plaintexts) != len(users):
+        raise SystemExit(f"[!] solve_ref 只回了 {len(plaintexts)} 個明文")
+    print(f"[+] 5 個目標還原完成 ({time.time()-t1:.2f}s)")
+    for u, pw in zip(users, plaintexts):
+        print(f"    {u:8s} {pw}")
 
+    # --- 解 flag
     key = hashlib.sha256("|".join(plaintexts).encode()).digest()
     blob = open(os.path.join(DIST, "flag.enc"), "rb").read()
     tag, ct = blob[:16], blob[16:]
-    assert hmac.compare_digest(
+    if not hmac.compare_digest(
         tag, hmac.new(key, b"YANI-TAG" + ct, hashlib.sha256).digest()[:16]
-    ), "tag mismatch"
+    ):
+        raise SystemExit("[!] HMAC tag 不符")
     flag = bytes(a ^ b for a, b in zip(ct, keystream(key, len(ct))))
     print(f"\n[FLAG] {flag.decode()}")
     print(f"[*] total {time.time()-t0:.2f}s")

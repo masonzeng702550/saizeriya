@@ -12,7 +12,7 @@
 |---|---|
 | `yanihash.py` | `YaniHash-40` 完整原始碼。四顆種子 `K1..K4` 空著。 |
 | `shadow.txt` | 五位住戶的密語雜湊（5 bytes / 40-bit，無 salt）。 |
-| `nyan.tbl` | 房東那份「預先算好的表」。每行 `start<TAB>end`。 |
+| `nyan.tbl` | 房東那份「預先算好的表」。每行一條鏈，只存**截斷過的**鏈尾。 |
 | `flag.enc` | 加密的 flag。 |
 | `note.png` | 房東貼在牆上的便條紙。數值被菸燙掉了，只剩標籤。 |
 | `note.txt` | 同上，純文字版。 |
@@ -21,7 +21,7 @@
 
 **密語空間**：`CHARSET = "yaniko"`，長度 `PWLEN = @PWLEN@` → `6^@PWLEN@ = @N@`。
 
-**`nyan.tbl`**：共 @NCHAINS@ 行，每行一條鏈的頭尾。鏈的定義是
+**鏈的定義**
 
 ```
 CHAIN_LEN = @CHAIN_LEN@
@@ -31,7 +31,25 @@ pw_{i+1} = reduce_at( yani40(pw_i, K), i )    for i = 0, 1, ..., @LAST@
 end      = pw_@CHAIN_LEN@
 ```
 
-一條鏈共 @CHAIN_LEN@ 步、產生 `pw_0 .. pw_@CHAIN_LEN@` 這 @NPW@ 個密語，但檔案裡只存頭 (`pw_0`) 和尾 (`pw_@CHAIN_LEN@`)，中間 @NMID@ 個值沒有存。
+一條鏈共 @CHAIN_LEN@ 步、產生 `pw_0 .. pw_@CHAIN_LEN@` 這 @NPW@ 個密語，
+中間 @NMID@ 個值沒有存。
+
+**`nyan.tbl`**：共 @NCHAINS@ 行，固定寬度。房東為了省空間，把表壓到極限：
+
+1. **起點沒有存。** 第 `c` 行就是第 `c` 條鏈（`c` 從 0 起算），它的起點是
+
+   ```
+   start_c = 把 c 寫成 6 進位，每一位查 CHARSET，低位在前，補滿 @PWLEN@ 位
+   ```
+
+   例如 `c = 0` 的起點是 `yyyy...`，`c = 1` 是 `ayyy...`，`c = 6` 是 `yayy...`。
+
+2. **鏈尾被截斷。** 每行只有 `end` 的**前 @TRUNC@ 個字元**，後面的丟了。
+
+截斷的代價是碰撞：@NCHAINS@ 條鏈擠進 `6^@TRUNC@ = @NTRUNC@` 個可能值，
+**平均每個值對應 @AVGDUP@ 條鏈**。所以查表命中一個截斷值時，
+你拿到的是一批候選鏈，必須逐條從起點走回去、用 `yani40` 驗證，
+才知道哪一條（如果有）是真的。
 
 > 注意：`@NCHAINS@ × @CHAIN_LEN@` 剛好等於密語空間大小，**但這不代表全覆蓋**——
 > 鏈會互相合併碰撞，實際覆蓋率明顯低於 100%。房東只保證 `shadow.txt` 裡那五個

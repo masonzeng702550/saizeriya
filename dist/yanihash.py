@@ -7,7 +7,7 @@ MASK = 0xFFFFFFFF
 M40 = (1 << 40) - 1
 
 CHARSET = "yaniko"
-PWLEN = 12
+PWLEN = 14
 N = len(CHARSET) ** PWLEN
 
 RSTEP = 0x9E3779B9

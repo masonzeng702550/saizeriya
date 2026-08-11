@@ -21,6 +21,7 @@ N = len(CHARSET) ** PWLEN
 
 CHAIN_LEN = 256
 NUM_CHAINS = N // CHAIN_LEN
+TRUNC = 4      # endpoint 截斷長度
 
 # reduction function 的公開步進常數（與 K 無關，完整公開）
 RSTEP = 0x9E3779B9
