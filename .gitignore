@@ -12,5 +12,6 @@ author/build_table
 __pycache__/
 *.pyc
 
-# 正式規模的表（55 MB+，用 build_table 現場產生）
-*.tbl.prod
+# 彩虹表：由 K 與參數決定性產生（正式規模 55.3 MB / 13.8 s），不進版控。
+# 重建：cd author && python3 build.py prod
+dist/nyan.tbl

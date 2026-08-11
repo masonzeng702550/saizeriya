@@ -23,28 +23,32 @@ dist/       ★ 發布給玩家的附件
 cd author
 cp challenge_secrets.example.py challenge_secrets.py   # 填入 K_TRUE / CANDIDATE_POOL / FLAG
 python3 check_constants.py                             # 常數檢核，必須全 PASS
-python3 build.py                                       # 產 dist/
+python3 build.py prod                                  # 產 dist/（正式規模）
 python3 solve_official.py                              # 驗收，應印出 flag
 ```
+
+`build.py` 有兩種規模：
+
+| mode | PWLEN | t | m | 表大小 | 建表 | 官方解 |
+|---|---|---|---|---|---|---|
+| `poc` (預設) | 8 | 256 | 6,561 | 118 KB | 17 s (Python) | 0.6 s |
+| `prod` | 12 | 1024 | 2,125,764 | 55.3 MB | 13.8 s (C, 12 緒) | 21.1 s |
+
+`prod` 會自動編譯並呼叫 `build_table`。官方解為純 CPython、零外部相依。
 
 `check_constants.py` 自動檢查四顆種子是否落在可被暴力掃描覆蓋的範圍內，
 以及是否可由題目內既有常數或角色名字的常見編碼導出。未通過不得出題。
 
-## 正式規模建表
+## C 建表器
 
-`build.py` 的內建建表器是純 Python，只適合 PoC 規模。正式參數
-（`PWLEN=12, t=1024, m=2125764`）請用 C 版：
+`build_table.c` 與 `author/yani_core.py` 位元級一致；`--selftest` 以中性種子
+`(1,2,3,4)` 印出四組測試向量供對拍。也可獨立使用：
 
 ```bash
 cc -O3 -pthread -o build_table build_table.c
-./build_table --selftest                               # 與 Python 參考實作對拍
+./build_table --selftest
 ./build_table 12 1024 2125764 K1 K2 K3 K4 ../dist/nyan.tbl 12
 ```
-
-實測（12 執行緒）：13.75 秒，158 MH/s，輸出 55.3 MB。
-
-`build_table.c` 與 `author/yani_core.py` 位元級一致，`--selftest` 會印出
-四組測試向量供對拍。
 
 ## 玩家附件
 
@@ -57,7 +61,9 @@ cc -O3 -pthread -o build_table build_table.c
 | `flag.enc` | `tag(16) \|\| ciphertext`，HMAC 自帶正確性驗證 |
 | `note.png` | 便條紙（只寫標籤、不寫數值）— 待製作 |
 
+`nyan.tbl` 不進版控：它由 `K` 與參數決定性產生，`build.py prod` 13.8 秒可重建。
+
 ## 注意
 
-- `dist/` 目前是 PoC 規模（`PWLEN=8, t=256, m=6561`），出題前需以正式參數重建。
-- 正式規模的 `nyan.tbl` 為 55 MB，若要進版控需改用 Git LFS。
+- 出題前必須跑 `check_constants.py`，未全 PASS 不得發布。
+- 發布給玩家的是 `dist/` 整個目錄（含 55 MB 的 `nyan.tbl`），建議打包成 zip。

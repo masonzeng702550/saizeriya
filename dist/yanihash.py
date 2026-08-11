@@ -7,10 +7,11 @@ MASK = 0xFFFFFFFF
 M40 = (1 << 40) - 1
 
 CHARSET = "yaniko"
-PWLEN = 8
+PWLEN = 12
 N = len(CHARSET) ** PWLEN
 
 RSTEP = 0x9E3779B9
+
 
 # TODO: 這四個數字寫在 306 號房牆上的便條紙，房東說是「這棟樓的人」。
 K1 = None

@@ -14,8 +14,15 @@ import zlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 M32 = 0xFFFFFFFF
 
-# C2 的預算牆：Agent B 實測把 0..255^4 (4.3e9) 判為預算內邊緣、0..999^4 判為出界。
-BUDGET = 10**10
+# 攻擊者預算牆（推導，取代早期「兩顆 > 65535」的粗略啟發式）：
+#   一次 K 測試 = t 次雜湊（正式參數 t = 1024）
+#   實測 build_table.c：158 MH/s @ 12 緒  ->  154k K-tests/s
+#   假想攻擊者：100 倍硬體 × 24 小時      ->  1.33e12 K-tests
+#   安全係數 100 倍                        ->  牆設在 1.3e14
+BUDGET = 13 * 10**13
+
+# C1：至少一顆 Ki 必須大到讓「等寬方盒掃描」直接失效。
+BIG_MIN = 1 << 24
 
 # C4：yanihash.py 內出現過的所有常數
 FILE_CONSTS = [
@@ -68,12 +75,12 @@ def check(K):
     print(f"    hex = {tuple(hex(k) for k in K)}\n")
 
     # C1
-    big = [k for k in K if k > 65535]
-    r = len(big) >= 2
+    big = [k for k in K if k >= BIG_MIN]
+    r = len(big) >= 1
     ok &= r
-    print(f"[{'PASS' if r else 'FAIL'}] C1  至少兩顆 > 65535 —— 實際 {len(big)} 顆 {big}")
+    print(f"[{'PASS' if r else 'FAIL'}] C1  至少一顆 >= 2^24 —— 實際 {len(big)} 顆 {big}")
     if not r:
-        print("        依據：Agent B 兩次窮盡 0..127^4 (2.68e8 組)。小整數必須出界。")
+        print("        依據：Agent B 兩次窮盡 0..127^4。等寬方盒掃描必須直接失效。")
 
     # C2
     vol = 1
@@ -81,11 +88,11 @@ def check(K):
         vol *= (k + 1)
     r = vol > BUDGET
     ok &= r
-    print(f"[{'PASS' if r else 'FAIL'}] C2  最小包圍盒體積 prod(Ki+1) = {vol:.3e} > {BUDGET:.0e}")
+    print(f"[{'PASS' if r else 'FAIL'}] C2  最小包圍盒 prod(Ki+1) = {vol:.3e} > {BUDGET:.1e}")
     if not r:
-        print(f"        依據：攻擊者可對 [0,Ki] 逐維掃描，成本僅 {vol:.3e} 組。")
+        print(f"        依據：攻擊者可對 [0,Ki] 逐維設不同上界，成本僅 {vol:.3e} 組。")
     box = (max(K) + 1) ** 4
-    print(f"        (等寬盒 (max+1)^4 = {box:.3e})")
+    print(f"        (等寬盒 (max+1)^4 = {box:.3e}；牆 = 154k K-tests/s × 100x硬體 × 24h × 100x安全係數)")
 
     # C4
     bad = [k for k in K if k in FILE_CONSTS or ((-k) & M32) in FILE_CONSTS]

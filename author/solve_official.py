@@ -18,7 +18,8 @@ sys.path.insert(0, DIST)
 
 import yanihash as Y  # noqa: E402
 
-CHAIN_LEN = 256
+# 鏈長由表的行數反推：m * t = N，所以 t = N / m。與 poc / prod 規模無關。
+CHAIN_LEN = None
 
 # 候選數字池 = 玩家從作品蒐集到的數字。
 #   1) 命令列指定：solve_official.py N1 N2 N3 ... （從作品蒐集到的數字）
@@ -81,7 +82,9 @@ def keystream(key, n):
 def main():
     t0 = time.time()
     rows = load_table()
-    print(f"[*] table: {len(rows)} chains")
+    global CHAIN_LEN
+    CHAIN_LEN = Y.N // len(rows)
+    print(f"[*] table: {len(rows):,} chains, PWLEN={Y.PWLEN}, t={CHAIN_LEN}")
 
     K, tried = recover_K(rows)
     assert K, "K not recovered"

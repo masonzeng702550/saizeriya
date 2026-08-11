@@ -1,8 +1,16 @@
-"""建題腳本：產彩虹表、shadow、flag.enc，並輸出玩家用的 dist/。"""
+"""建題腳本：產彩虹表、shadow、flag.enc，並輸出玩家用的 dist/。
+
+    python3 build.py            # PoC 規模 (PWLEN=8,  t=256)，純 Python 建表
+    python3 build.py prod       # 正式規模 (PWLEN=12, t=1024)，呼叫 ./build_table
+
+正式規模的表有 2,125,764 條鏈、55.3 MB，純 Python 需 5.2 小時，
+因此 prod 模式強制使用 C 建表器（12 緒實測 13.75 s）。
+"""
 
 import os
 import random
-import shutil
+import re
+import subprocess
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -16,27 +24,58 @@ FLAG = C.FLAG  # 來自 challenge_secrets.py
 # 306 號房五位住戶
 RESIDENTS = ["yaniko", "yakuko", "hameko", "kaoruko", "aruko"]
 
+PARAMS = {
+    "poc": dict(PWLEN=8, CHAIN_LEN=256),
+    "prod": dict(PWLEN=12, CHAIN_LEN=1024),
+}
 
-def build_table():
-    """chain: pw_0 = start ; pw_{i+1} = R_i(H(pw_i)) ; end = pw_t"""
+
+def apply_params(mode):
+    p = PARAMS[mode]
+    C.PWLEN = p["PWLEN"]
+    C.N = len(C.CHARSET) ** C.PWLEN
+    C.CHAIN_LEN = p["CHAIN_LEN"]
+    if C.N % C.CHAIN_LEN:
+        raise SystemExit(f"N={C.N} 不能被 t={C.CHAIN_LEN} 整除")
+    C.NUM_CHAINS = C.N // C.CHAIN_LEN
+
+
+def build_table_python():
     rows = []
     for c in range(C.NUM_CHAINS):
         start = C.idx_to_pw(c)
-        end = C.walk(start, C.CHAIN_LEN, C.K_TRUE, 0)
-        rows.append((start, end))
+        rows.append((start, C.walk(start, C.CHAIN_LEN, C.K_TRUE, 0)))
         if c % 1000 == 0:
             print(f"  chain {c}/{C.NUM_CHAINS}", file=sys.stderr)
-    return rows
+    with open(os.path.join(DIST, "nyan.tbl"), "w") as f:
+        for s, e in rows:
+            f.write(f"{s}\t{e}\n")
 
 
-def pick_targets(rows, rng):
-    """挑 5 個保證被表覆蓋的明文：從隨機鏈的隨機位置 p (0<=p<=t-1) 取出。"""
-    out = []
-    used = set()
+def build_table_c():
+    exe = os.path.join(HERE, "build_table")
+    if not os.path.exists(exe):
+        print("[*] compiling build_table.c ...", file=sys.stderr)
+        subprocess.run(
+            ["cc", "-O3", "-pthread", "-o", exe, os.path.join(HERE, "build_table.c")],
+            check=True,
+        )
+    subprocess.run(
+        [exe, str(C.PWLEN), str(C.CHAIN_LEN), str(C.NUM_CHAINS)]
+        + [str(k) for k in C.K_TRUE]
+        + [os.path.join(DIST, "nyan.tbl"), str(os.cpu_count() or 4)],
+        check=True,
+    )
+
+
+def pick_targets(rng):
+    """挑 5 個保證被表覆蓋的明文：從隨機鏈的隨機位置 p (0<=p<=t-1) 取出。
+    只需要鏈的起點，起點就是索引的 base-6 編碼，不必讀回整張表。"""
+    out, used = [], set()
     while len(out) < len(RESIDENTS):
         c = rng.randrange(C.NUM_CHAINS)
         p = rng.randrange(C.CHAIN_LEN)
-        pw = C.walk(rows[c][0], p, C.K_TRUE, 0)
+        pw = C.walk(C.idx_to_pw(c), p, C.K_TRUE, 0)
         if pw in used:
             continue
         used.add(pw)
@@ -44,46 +83,64 @@ def pick_targets(rows, rng):
     return out
 
 
+def render_readme(mode):
+    tpl = open(os.path.join(HERE, "README.dist.md")).read()
+    subs = {
+        "@PWLEN@": str(C.PWLEN),
+        "@N@": f"{C.N:,}",
+        "@CHAIN_LEN@": str(C.CHAIN_LEN),
+        "@LAST@": str(C.CHAIN_LEN - 1),
+        "@NPW@": str(C.CHAIN_LEN + 1),
+        "@NMID@": str(C.CHAIN_LEN - 1),
+        "@NCHAINS@": f"{C.NUM_CHAINS:,}",
+    }
+    for k, v in subs.items():
+        tpl = tpl.replace(k, v)
+    leftover = re.findall(r"@[A-Z_]+@", tpl)
+    if leftover:
+        raise SystemExit(f"README 模板有未替換的佔位符: {sorted(set(leftover))}")
+    with open(os.path.join(DIST, "README.md"), "w") as f:
+        f.write(tpl)
+
+
 def main():
-    rng = random.Random(20260811)
-
-    print("[*] building rainbow table ...", file=sys.stderr)
-    rows = build_table()
-
-    print("[*] picking covered targets ...", file=sys.stderr)
-    targets = pick_targets(rows, rng)
-    plaintexts = [t[0] for t in targets]
-
+    mode = sys.argv[1] if len(sys.argv) > 1 else "poc"
+    if mode not in PARAMS:
+        raise SystemExit(f"mode 必須是 {list(PARAMS)}")
+    apply_params(mode)
     os.makedirs(DIST, exist_ok=True)
 
-    # nyan.tbl
-    with open(os.path.join(DIST, "nyan.tbl"), "w") as f:
-        for s, e in rows:
-            f.write(f"{s}\t{e}\n")
+    print(
+        f"[*] mode={mode}  PWLEN={C.PWLEN}  N=6^{C.PWLEN}={C.N:,}  "
+        f"t={C.CHAIN_LEN}  m={C.NUM_CHAINS:,}",
+        file=sys.stderr,
+    )
 
-    # shadow.txt
+    print("[*] building rainbow table ...", file=sys.stderr)
+    (build_table_c if mode == "prod" else build_table_python)()
+
+    print("[*] picking covered targets ...", file=sys.stderr)
+    rng = random.Random(20260811)
+    targets = pick_targets(rng)
+    plaintexts = [t[0] for t in targets]
+
     with open(os.path.join(DIST, "shadow.txt"), "w") as f:
         f.write("# 306 號房 電子鎖 密語雜湊 (YaniHash-40)\n")
         f.write("# 格式: 住戶:hash(hex,5bytes)\n")
         for user, pw in zip(RESIDENTS, plaintexts):
-            h = C.yani40(pw.encode(), C.K_TRUE)
-            f.write(f"{user}:{h.hex()}\n")
+            f.write(f"{user}:{C.yani40(pw.encode(), C.K_TRUE).hex()}\n")
 
-    # flag.enc
     key = C.derive_key(plaintexts)
     with open(os.path.join(DIST, "flag.enc"), "wb") as f:
         f.write(C.seal(key, FLAG))
 
-    # 玩家版 yanihash.py：K 挖空
-    src = open(os.path.join(HERE, "yani_core.py")).read()
-    player = build_player_source()
     with open(os.path.join(DIST, "yanihash.py"), "w") as f:
-        f.write(player)
+        f.write(build_player_source())
 
-    shutil.copy(os.path.join(HERE, "README.dist.md"), os.path.join(DIST, "README.md"))
+    render_readme(mode)
 
-    # 作者紀錄（不進 dist）
     with open(os.path.join(HERE, "ANSWERS.txt"), "w") as f:
+        f.write(f"mode = {mode}  PWLEN={C.PWLEN} t={C.CHAIN_LEN} m={C.NUM_CHAINS}\n")
         f.write(f"K = {C.K_TRUE}\n")
         for user, (pw, c, p) in zip(RESIDENTS, targets):
             f.write(f"{user}: {pw}   (chain {c}, pos {p})\n")
@@ -96,7 +153,7 @@ def main():
 
 
 def build_player_source():
-    return '''"""
+    return f'''"""
 YaniHash-40 —— 306 號房電子鎖用的自製雜湊。
 (從房東的舊筆電裡撈出來的，程式碼是完整的，但那四顆種子他寫在便條紙上，紙不見了。)
 """
@@ -105,10 +162,11 @@ MASK = 0xFFFFFFFF
 M40 = (1 << 40) - 1
 
 CHARSET = "yaniko"
-PWLEN = 8
+PWLEN = {C.PWLEN}
 N = len(CHARSET) ** PWLEN
 
 RSTEP = 0x9E3779B9
+
 
 # TODO: 這四個數字寫在 306 號房牆上的便條紙，房東說是「這棟樓的人」。
 K1 = None

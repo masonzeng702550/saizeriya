@@ -17,19 +17,19 @@
 
 ## 規格
 
-**密語空間**：`CHARSET = "yaniko"`，長度 `PWLEN = 8` → `6^8 = 1,679,616`。
+**密語空間**：`CHARSET = "yaniko"`，長度 `PWLEN = @PWLEN@` → `6^@PWLEN@ = @N@`。
 
-**`nyan.tbl`**：每行一條鏈的頭尾。鏈的定義是
+**`nyan.tbl`**：共 @NCHAINS@ 行，每行一條鏈的頭尾。鏈的定義是
 
 ```
-CHAIN_LEN = 256
+CHAIN_LEN = @CHAIN_LEN@
 
 pw_0     = start
-pw_{i+1} = reduce_at( yani40(pw_i, K), i )    for i = 0, 1, ..., 255
-end      = pw_256
+pw_{i+1} = reduce_at( yani40(pw_i, K), i )    for i = 0, 1, ..., @LAST@
+end      = pw_@CHAIN_LEN@
 ```
 
-一條鏈共 256 步、產生 `pw_0 .. pw_256` 這 257 個密語，但檔案裡只存頭 (`pw_0`) 和尾 (`pw_256`)，中間 255 個值沒有存。
+一條鏈共 @CHAIN_LEN@ 步、產生 `pw_0 .. pw_@CHAIN_LEN@` 這 @NPW@ 個密語，但檔案裡只存頭 (`pw_0`) 和尾 (`pw_@CHAIN_LEN@`)，中間 @NMID@ 個值沒有存。
 
 > 驗證你猜的 `K` 時請**至少比對 3 條鏈**。單獨一條鏈只給約 20.7 bit 的約束，會出現大量偽陽性。
 
