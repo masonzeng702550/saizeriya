@@ -14,6 +14,8 @@
 | `shadow.txt` | 五位住戶的密語雜湊（5 bytes / 40-bit，無 salt）。 |
 | `nyan.tbl` | 房東那份「預先算好的表」。每行 `start<TAB>end`。 |
 | `flag.enc` | 加密的 flag。 |
+| `note.png` | 房東貼在牆上的便條紙。數值被菸燙掉了，只剩標籤。 |
+| `note.txt` | 同上，純文字版。 |
 
 ## 規格
 

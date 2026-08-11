@@ -139,6 +139,9 @@ def main():
 
     render_readme(mode)
 
+    import make_note
+    make_note.main()
+
     with open(os.path.join(HERE, "ANSWERS.txt"), "w") as f:
         f.write(f"mode = {mode}  PWLEN={C.PWLEN} t={C.CHAIN_LEN} m={C.NUM_CHAINS}\n")
         f.write(f"K = {C.K_TRUE}\n")
