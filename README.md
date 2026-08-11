@@ -59,7 +59,8 @@ cc -O3 -pthread -o build_table build_table.c
 | `shadow.txt` | 五位住戶的密語雜湊 |
 | `nyan.tbl` | 彩虹表，每行 `start<TAB>end` |
 | `flag.enc` | `tag(16) \|\| ciphertext`，HMAC 自帶正確性驗證 |
-| `note.png` | 便條紙（只寫標籤、不寫數值）— 待製作 |
+| `note.png` | 房東的便條紙，鎖定 K1–K4 的順序，數值被菸燙穿 |
+| `note.txt` | 同上，純文字無障礙版（與 PNG 同一支腳本產生）|
 
 `nyan.tbl` 不進版控：它由 `K` 與參數決定性產生，`build.py prod` 13.8 秒可重建。
 
