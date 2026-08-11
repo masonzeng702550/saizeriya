@@ -12,6 +12,7 @@ C3 是這裡最重要的一條，也是 v1.1 被攻破的原因：攻擊者不�
 """
 
 import hashlib
+import itertools
 import os
 import sys
 import zlib
@@ -115,12 +116,52 @@ def check(K):
     ok &= r
     print(f"[{'PASS' if r else 'FAIL'}] C5  不得由名字經常見編碼導出 —— 命中 {hits}")
 
+    # C7
+    rel = find_relations(K)
+    r = not rel
+    ok &= r
+    print(f"[{'PASS' if r else 'FAIL'}] C7  四顆必須互相獨立 —— 找到 {len(rel)} 條關係")
+    for a in rel:
+        print(f"        {a}")
+    if rel:
+        print("        依據：Agent E/F 皆指出 45108000 = str(45)+str(108000) 把三顆綁成一顆，")
+        print("        未知維度從 2 掉到 1，2^128 塌縮成單一整數掃描（12 核 15 秒）。")
+
     ok &= check_c3()
 
     print("\n[MANUAL] C6  四顆的順序由 note.png 的標籤鎖定，不留排列不確定性")
 
     print(f"\n==> 自動檢核 {'全部通過' if ok else '未通過'}（C6 仍需人工複核）")
     return ok
+
+
+def find_relations(K):
+    """C7 —— 偵測四顆常數之間的可推導關係。
+
+    任何一顆能由其他顆導出，就等於少一個未知維度。攻擊者不必知道值，
+    只要看出關係，就能把多維掃描塌縮成一維（v1.2 被破的直接原因）。
+    """
+    rel = []
+    n = len(K)
+    for i in range(n):
+        others = [(j, K[j]) for j in range(n) if j != i]
+        for (ja, a), (jb, b) in itertools.permutations(others, 2):
+            for expr, val in (
+                (f"str(K{ja+1})+str(K{jb+1})", int(f"{a}{b}")),
+                (f"K{ja+1}+K{jb+1}", a + b),
+                (f"K{ja+1}-K{jb+1}", a - b),
+                (f"K{ja+1}*K{jb+1}", a * b),
+                (f"K{ja+1}^K{jb+1}", a ^ b),
+                (f"K{ja+1}*1000+K{jb+1}", a * 1000 + b),
+            ):
+                if val == K[i]:
+                    rel.append(f"K{i+1} = {expr} = {K[i]}")
+        for j, a in others:
+            for expr, val in ((f"K{j+1}*2", a * 2), (f"K{j+1}**2", a * a),
+                              (f"reverse(K{j+1})", int(str(a)[::-1]))):
+                if val == K[i]:
+                    rel.append(f"K{i+1} = {expr} = {K[i]}")
+    return sorted(set(rel))
 
 
 def fmt_time(secs):
