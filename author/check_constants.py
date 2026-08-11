@@ -1,9 +1,14 @@
 """常數 K 的檢核器 —— 建題前必跑。
 
-規則來源：隔離 agent 實測。C1/C2/C4/C5 自動檢，C3/C6 人工複核。
+規則來源：隔離 agent 實測。C1/C2/C3/C4/C5 自動檢，C6 人工複核。
 
     python3 check_constants.py                 # 檢 challenge_secrets.py 的 K_TRUE
-    python3 check_constants.py 11 22 33 44
+    python3 check_constants.py 11 22 33 44     # 只檢值域類規則（C3 仍讀 K_SOURCES）
+    python3 check_constants.py --shapes        # 列出各種 K 形狀的攻擊成本對照表
+
+C3 是這裡最重要的一條，也是 v1.1 被攻破的原因：攻擊者不需要知道常數的「值」，
+只要知道它的「範圍」就能掃。因此安全性等於攻擊者未知部分的熵，而不是常數
+本身有多大——C2 可以全過而 C3 全倒，v1.1 正是如此。
 """
 
 import hashlib
@@ -110,15 +115,91 @@ def check(K):
     ok &= r
     print(f"[{'PASS' if r else 'FAIL'}] C5  不得由名字經常見編碼導出 —— 命中 {hits}")
 
-    print("\n[MANUAL] C3  至少一顆數值只能從作品畫面取得（維基／百科／文字資料庫查不到）")
-    print("             → 對每顆 Ki 實際搜尋一次，確認至少一顆搜不到。")
-    print("[MANUAL] C6  四顆的順序由 note.png 的標籤鎖定，不留排列不確定性")
+    ok &= check_c3()
 
-    print(f"\n==> 自動檢核 {'全部通過' if ok else '未通過'}（C3/C6 仍需人工複核）")
+    print("\n[MANUAL] C6  四顆的順序由 note.png 的標籤鎖定，不留排列不確定性")
+
+    print(f"\n==> 自動檢核 {'全部通過' if ok else '未通過'}（C6 仍需人工複核）")
     return ok
 
 
+def fmt_time(secs):
+    if secs < 90:
+        return f"{secs:.0f} 秒"
+    if secs < 5400:
+        return f"{secs/60:.0f} 分鐘"
+    if secs < 172800:
+        return f"{secs/3600:.1f} 小時"
+    if secs < 3.15e7:
+        return f"{secs/86400:.0f} 天"
+    return f"{secs/3.15e7:.0f} 年"
+
+
+def check_c3(sources=None):
+    """C3 —— 攻擊者熵記帳。
+
+    關鍵：攻擊者不需要知道某顆常數的「值」，只要知道它的「範圍」就能掃。
+    把畫面數字丟進任何公式都不會增加熵——掃的是原像空間，不是常數空間。
+    因此凡是能從附件推導出來的常數，對攻擊成本的貢獻是 1（零熵）。
+
+    每顆常數宣告 (描述, 種類, 攻擊者需列舉的可能數)：
+        public  附件內線索可推導            -> 1
+        derived 由 public 經常見運算導出     -> 該運算池大小（通常 ~50）
+        screen  只能從作品畫面取得           -> 該數值的合理範圍大小
+    """
+    if sources is None:
+        try:
+            sys.path.insert(0, HERE)
+            from challenge_secrets import K_SOURCES as sources
+        except ImportError:
+            print("\n[FAIL] C3  challenge_secrets.py 未宣告 K_SOURCES —— 無法記帳")
+            print("        每顆常數必須宣告 (描述, 種類, 攻擊者需列舉的可能數)")
+            return False
+
+    print("\n[----] C3  攻擊者熵記帳")
+    cost = 1
+    for desc, kind, space in sources:
+        cost *= space
+        print(f"        {desc:<28} {kind:<8} x{space:>12,}")
+    bits = 0 if cost <= 1 else round(cost.bit_length() - 1 + 0.0, 1)
+    r = cost > BUDGET
+    print(f"[{'PASS' if r else 'FAIL'}] C3  攻擊者需列舉 {cost:.3e} 組 (~{bits} bit) > {BUDGET:.1e}")
+    if not r:
+        print(f"        以實測 154,000 次 K 測試/秒計，攻擊者約需 {fmt_time(cost / 154_000)}。")
+        print("        提高熵的唯一方法是增加『附件推導不出來』的維度數或其範圍；")
+        print("        把已知數字丟進公式沒有用。")
+    return r
+
+
+SHAPES = {
+    "v1.1 現況 (3301,3401,串接,串接)": [("derived", 24)] * 4,
+    "3301,3401 + 兩顆畫面四位數": [("public", 1), ("public", 1)] + [("screen", 10**4)] * 2,
+    "3301,3401 + 兩顆畫面四位數再混公式": [("public", 1), ("public", 1)] + [("screen", 10**4)] * 2,
+    "3301 + 三顆畫面四位數": [("public", 1)] + [("screen", 10**4)] * 3,
+    "四顆都是畫面四位數": [("screen", 10**4)] * 4,
+    "四顆都是畫面三位數": [("screen", 10**3)] * 4,
+    "兩顆畫面七位數": [("public", 1), ("public", 1)] + [("screen", 10**7)] * 2,
+}
+
+
+def print_shapes():
+    print(f"攻擊者預算牆 = {BUDGET:.1e} 組 K 測試（154,000 組/秒 實測）\n")
+    print(f"{'形狀':<38} {'需列舉':>12}  {'時間':>12}  結果")
+    print("-" * 78)
+    for name, dims in SHAPES.items():
+        cost = 1
+        for _, space in dims:
+            cost *= space
+        print(f"{name:<38} {cost:>12.2e}  {fmt_time(cost/154_000):>12}  "
+              f"{'PASS' if cost > BUDGET else 'FAIL'}")
+    print("\n注意第 2 與第 3 列相同：把已知數字丟進任何公式都不會增加熵，")
+    print("攻擊者掃的是原像空間，不是常數空間。")
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "--shapes":
+        print_shapes()
+        return
     if len(sys.argv) > 1:
         K = [int(x, 0) for x in sys.argv[1:]]
     else:
