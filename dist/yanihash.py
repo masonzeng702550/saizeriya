@@ -13,7 +13,7 @@ N = len(CHARSET) ** PWLEN
 RSTEP = 0x9E3779B9
 
 
-# TODO: 這四個數字寫在 306 號房牆上的便條紙，房東說是「這棟樓的人」。
+# TODO: 這四個數字房東寫在便條紙上，紙不見了。
 K1 = None
 K2 = None
 K3 = None
