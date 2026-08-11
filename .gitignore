@@ -1,0 +1,16 @@
+# 設計文件（不隨題目發布）
+PRD.md
+SPEC.md
+
+# 機密：種子、flag、答案
+author/challenge_secrets.py
+author/ANSWERS.txt
+
+# 建置產物
+author/build_table
+*.o
+__pycache__/
+*.pyc
+
+# 正式規模的表（55 MB+，用 build_table 現場產生）
+*.tbl.prod
