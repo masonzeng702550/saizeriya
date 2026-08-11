@@ -36,7 +36,9 @@ python3 solve_official.py                              # 驗收，應印出 flag
 
 `prod` 會自動編譯並呼叫 `build_table`。
 
-**v1.4 起官方解也需要 C**：查詢量約 1.9×10⁹ 次雜湊，純 CPython 約 6 小時。
+**v1.4 起官方解也需要 C**：查詢量約 1.9×10⁹ 步（每步 = 一次 `yani40` + 一次
+`reduce_at`）。`reduce_at` 在 Python 有 14 次除法，實測每步比 C 慢 300–1000 倍
+→ **純 Python 不可行**（隔離測試 Agent K 估算查表需 300–1500 小時），沒有中間選項。
 `solve_official.py` 負責參數推導、K 的三鏈驗證、金鑰推導與解密，
 重運算交給 `solve_ref.c`（mmap 表、建 bucket index、按 column 平行搜尋、
 false alarm 走回起點驗證）。
