@@ -1,7 +1,7 @@
 # 306 號房 電子鎖 密語雜湊 (YaniHash-40)
 # 格式: 住戶:hash(hex,5bytes)
-yaniko:3b792f19ed
-yakuko:5390ee0532
-hameko:a77a758a97
-kaoruko:bc3500c9cb
-aruko:29e2f7c3fc
+yaniko:c9f0a15bde
+yakuko:5f0c275389
+hameko:e8319cdb47
+kaoruko:d5e2bcb4f0
+aruko:58996dc1c1

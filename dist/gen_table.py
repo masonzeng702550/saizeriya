@@ -20,7 +20,15 @@ CHAIN_LEN = 16384
 NUM_CHAINS = N // CHAIN_LEN
 TRUNC = 8
 
-RSTEP = 0x9E3779B9
+# 訊息迴圈的遍數
+PASSES = 3
+
+# reduce_at 的混合常數
+RMIX1 = 0x5851f42d4c95
+RMIX2 = 0xf1357aea2e63
+
+# 截斷 endpoint 需要幾個 bit
+ENDBITS = (6 ** TRUNC - 1).bit_length()
 
 RESIDENTS = ["yaniko", "yakuko", "hameko", "kaoruko", "aruko"]
 
@@ -42,12 +50,14 @@ def yani40(msg: bytes, K) -> bytes:
     b = (k2 + 0x85EBCA6B) & MASK
     c = (k3 ^ 0xC2B2AE35) & MASK
     d = (k4 + 0x27D4EB2F) & MASK
-    for x in msg:
-        a = ((a ^ x) * 0x01000193) & MASK
-        b = rotl32(b + a, 13) ^ c
-        c = (((c * 5 + 0xF00D) & MASK) ^ b) & MASK
-        d = (rotl32(d ^ a, 7) + b) & MASK
-        a = (a + d) & MASK
+    for p in range(PASSES):
+        for x in msg:
+            a = ((a ^ x) * 0x01000193) & MASK
+            b = rotl32(b + a, 13) ^ c
+            c = (((c * 5 + 0xF00D) & MASK) ^ b) & MASK
+            d = (rotl32(d ^ a, 7) + b) & MASK
+            a = (a + d) & MASK
+        a = (a ^ (p * 0x7FEB352D)) & MASK
     for _ in range(4):
         a = ((a ^ (b >> 15)) * 0x2545F491) & MASK
         b = ((b ^ (c >> 13)) * 0x9E3779B1) & MASK
@@ -58,7 +68,12 @@ def yani40(msg: bytes, K) -> bytes:
 
 
 def reduce_at(h: bytes, i: int) -> str:
-    n = (int.from_bytes(h, "big") ^ ((i * RSTEP) & M40)) % N
+    x = int.from_bytes(h, "big")
+    x = (x + i * RMIX1) & M40
+    x = ((x << 21) | (x >> 19)) & M40
+    x = (x * RMIX2) & M40
+    x ^= x >> 23
+    n = x % N
     out = []
     for _ in range(PWLEN):
         out.append(CHARSET[n % 6])
@@ -80,10 +95,29 @@ def walk(pw: str, steps: int, K, i0: int = 0) -> str:
     return pw
 
 
+def pw_to_val(pw):
+    """截斷 endpoint -> 整數（base-6 小端，pw[0] 是最低位）"""
+    v, p = 0, 1
+    for k in range(TRUNC):
+        v += CHARSET.index(pw[k]) * p
+        p *= 6
+    return v
+
+
 def build_table(K, path="nyan.tbl"):
-    with open(path, "w") as f:
-        for c in range(NUM_CHAINS):
-            f.write(walk(idx_to_pw(c), CHAIN_LEN, K)[:TRUNC] + "\n")
+    """每列 ENDBITS bits 緊密打包，低位在前。第 c 列 = 第 c 條鏈。"""
+    acc = n = 0
+    buf = bytearray()
+    for c in range(NUM_CHAINS):
+        acc |= pw_to_val(walk(idx_to_pw(c), CHAIN_LEN, K)) << n
+        n += ENDBITS
+        while n >= 8:
+            buf.append(acc & 0xFF)
+            acc >>= 8
+            n -= 8
+    if n:
+        buf.append(acc & 0xFF)
+    open(path, "wb").write(bytes(buf))
 
 
 def pick_targets(K, rng):

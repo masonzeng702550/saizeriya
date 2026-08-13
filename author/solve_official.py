@@ -42,18 +42,20 @@ def walk(pw, steps, K, i0=0):
 
 
 def table_params():
-    path = os.path.join(DIST, "nyan.tbl")
-    size = os.path.getsize(path)
-    with open(path) as f:
-        first = f.readline()
-    reclen = len(first)
-    trunc = reclen - 1
-    if size % reclen:
-        raise SystemExit(f"表大小 {size} 不是紀錄長度 {reclen} 的倍數")
-    m = size // reclen
-    if Y.N % m:
-        raise SystemExit(f"N={Y.N} 不能被 m={m} 整除")
-    return m, Y.N // m, trunc
+    """參數全部來自 gen_table.py（玩家拿到的產表程式），並用檔案大小交叉驗證。"""
+    m, t, trunc = Y.NUM_CHAINS, Y.CHAIN_LEN, Y.TRUNC
+    want = (m * Y.ENDBITS + 7) // 8
+    size = os.path.getsize(os.path.join(DIST, "nyan.tbl"))
+    if size != want:
+        raise SystemExit(f"表大小 {size} != ceil(m*{Y.ENDBITS}/8) = {want}")
+    return m, t, trunc
+
+
+def unpack_end(blob, c):
+    bit = c * Y.ENDBITS
+    byte = bit >> 3
+    chunk = int.from_bytes(blob[byte:byte + 8].ljust(8, b"\0"), "little")
+    return (chunk >> (bit & 7)) & ((1 << Y.ENDBITS) - 1)
 
 
 def keystream(key, n):
@@ -77,11 +79,11 @@ def main():
     print(f"[*] PWLEN={Y.PWLEN}  N={Y.N:,}  m={m:,}  t={t}  TRUNC={trunc}")
     print(f"[*] 截斷造成的平均重複： {m / 6 ** trunc:.2f} 條鏈/桶")
 
-    # --- 驗證 K：第 c 行的 start 是 idx_to_pw(c)，走 t 步應等於該行的截斷 endpoint
-    with open(os.path.join(DIST, "nyan.tbl")) as f:
-        ends = [f.readline().rstrip("\n") for _ in range(VERIFY_CHAINS)]
-    for c, want in enumerate(ends):
-        got = walk(idx_to_pw(c), t, K)[:trunc]
+    # --- 驗證 K：第 c 列的 start 是 idx_to_pw(c)，走 t 步應等於該列的截斷 endpoint
+    blob = open(os.path.join(DIST, "nyan.tbl"), "rb").read()
+    for c in range(VERIFY_CHAINS):
+        got = Y.pw_to_val(walk(idx_to_pw(c), t, K))
+        want = unpack_end(blob, c)
         if got != want:
             raise SystemExit(f"[!] K={K} 驗證失敗：chain {c} 得到 {got}，表上是 {want}")
     print(f"[+] K = {K} 通過 {VERIFY_CHAINS} 條鏈驗證  ({time.time()-t0:.2f}s)")
