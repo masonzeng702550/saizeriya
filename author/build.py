@@ -21,7 +21,7 @@ DIST = os.path.join(os.path.dirname(HERE), "dist")
 
 FLAG = C.FLAG  # 來自 challenge_secrets.py
 
-# 306 號房五位住戶
+# 五位住戶
 RESIDENTS = ["yaniko", "yakuko", "hameko", "kaoruko", "aruko"]
 
 PARAMS = {
@@ -128,8 +128,6 @@ def main():
     plaintexts = [t[0] for t in targets]
 
     with open(os.path.join(DIST, "shadow.txt"), "w") as f:
-        f.write("# 306 號房 電子鎖 密語雜湊 (YaniHash-40)\n")
-        f.write("# 格式: 住戶:hash(hex,5bytes)\n")
         for user, pw in zip(RESIDENTS, plaintexts):
             f.write(f"{user}:{C.yani40(pw.encode(), C.K_TRUE).hex()}\n")
 
@@ -159,13 +157,9 @@ def main():
 
 
 def build_player_source():
-    """玩家拿到的是房東的產表程式本身——格式規格即程式碼，不另寫散文。"""
-    return f'''"""
-房東的產表程式。
-
-當年就是跑這支程式，產出 nyan.tbl、shadow.txt 和 flag.enc。
-四顆種子他寫在便條紙上，紙被拿去捲菸了；flag.txt 也早就不在了。
-"""
+    """玩家拿到的是房東的產表程式本身。註解刻意精簡——真人寫的臨時腳本
+    不會替自己的每個函式寫規格說明，而那些說明等於直接送答案。"""
+    return f'''# 產表用。跑一次就好，別再跑第二次了。
 
 import hashlib
 import hmac
@@ -181,20 +175,15 @@ N = len(CHARSET) ** PWLEN
 CHAIN_LEN = {C.CHAIN_LEN}
 NUM_CHAINS = N // CHAIN_LEN
 TRUNC = {C.TRUNC}
+ENDBITS = (6 ** TRUNC - 1).bit_length()
 
-# 訊息迴圈的遍數
 PASSES = {C.PASSES}
-
-# reduce_at 的混合常數
 RMIX1 = {hex(C.RMIX1)}
 RMIX2 = {hex(C.RMIX2)}
 
-# 截斷 endpoint 需要幾個 bit
-ENDBITS = (6 ** TRUNC - 1).bit_length()
-
 RESIDENTS = ["yaniko", "yakuko", "hameko", "kaoruko", "aruko"]
 
-# TODO: 這四個數字寫在便條紙上，紙不見了。
+# 便條紙上那四個
 K1 = None
 K2 = None
 K3 = None
@@ -257,8 +246,7 @@ def walk(pw: str, steps: int, K, i0: int = 0) -> str:
     return pw
 
 
-def pw_to_val(pw):
-    """截斷 endpoint -> 整數（base-6 小端，pw[0] 是最低位）"""
+def pw_to_val(pw: str) -> int:
     v, p = 0, 1
     for k in range(TRUNC):
         v += CHARSET.index(pw[k]) * p
@@ -267,7 +255,6 @@ def pw_to_val(pw):
 
 
 def build_table(K, path="nyan.tbl"):
-    """每列 ENDBITS bits 緊密打包，低位在前。第 c 列 = 第 c 條鏈。"""
     acc = n = 0
     buf = bytearray()
     for c in range(NUM_CHAINS):
@@ -313,8 +300,6 @@ def main():
 
     plaintexts = pick_targets(K, random.Random())
     with open("shadow.txt", "w") as f:
-        f.write("# 306 號房 電子鎖 密語雜湊 (YaniHash-40)\\n")
-        f.write("# 格式: 住戶:hash(hex,5bytes)\\n")
         for user, pw in zip(RESIDENTS, plaintexts):
             f.write(f"{{user}}:{{yani40(pw.encode(), K).hex()}}\\n")
 
