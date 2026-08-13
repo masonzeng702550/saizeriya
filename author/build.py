@@ -138,7 +138,7 @@ def main():
     with open(os.path.join(DIST, "flag.enc"), "wb") as f:
         f.write(C.seal(key, FLAG))
 
-    with open(os.path.join(DIST, "yanihash.py"), "w") as f:
+    with open(os.path.join(DIST, "gen_table.py"), "w") as f:
         f.write(build_player_source())
 
     render_readme(mode)
@@ -160,10 +160,17 @@ def main():
 
 
 def build_player_source():
+    """玩家拿到的是房東的產表程式本身——格式規格即程式碼，不另寫散文。"""
     return f'''"""
-YaniHash-40 —— 306 號房電子鎖用的自製雜湊。
-(從房東的舊筆電裡撈出來的，程式碼是完整的，但那四顆種子他寫在便條紙上，紙不見了。)
+房東的產表程式。
+
+當年就是跑這支程式，產出 nyan.tbl、shadow.txt 和 flag.enc。
+四顆種子他寫在便條紙上，紙被拿去捲菸了；flag.txt 也早就不在了。
 """
+
+import hashlib
+import hmac
+import random
 
 MASK = 0xFFFFFFFF
 M40 = (1 << 40) - 1
@@ -172,10 +179,15 @@ CHARSET = "yaniko"
 PWLEN = {C.PWLEN}
 N = len(CHARSET) ** PWLEN
 
+CHAIN_LEN = {C.CHAIN_LEN}
+NUM_CHAINS = N // CHAIN_LEN
+TRUNC = {C.TRUNC}
+
 RSTEP = 0x9E3779B9
 
+RESIDENTS = ["yaniko", "yakuko", "hameko", "kaoruko", "aruko"]
 
-# TODO: 這四個數字房東寫在便條紙上，紙不見了。
+# TODO: 這四個數字寫在便條紙上，紙不見了。
 K1 = None
 K2 = None
 K3 = None
@@ -215,6 +227,71 @@ def reduce_at(h: bytes, i: int) -> str:
         out.append(CHARSET[n % 6])
         n //= 6
     return "".join(out)
+
+
+def idx_to_pw(idx: int) -> str:
+    out = []
+    for _ in range(PWLEN):
+        out.append(CHARSET[idx % 6])
+        idx //= 6
+    return "".join(out)
+
+
+def walk(pw: str, steps: int, K, i0: int = 0) -> str:
+    for i in range(i0, i0 + steps):
+        pw = reduce_at(yani40(pw.encode(), K), i)
+    return pw
+
+
+def build_table(K, path="nyan.tbl"):
+    with open(path, "w") as f:
+        for c in range(NUM_CHAINS):
+            f.write(walk(idx_to_pw(c), CHAIN_LEN, K)[:TRUNC] + "\\n")
+
+
+def pick_targets(K, rng):
+    out, used = [], set()
+    while len(out) < len(RESIDENTS):
+        pw = walk(idx_to_pw(rng.randrange(NUM_CHAINS)),
+                  rng.randrange(CHAIN_LEN), K)
+        if pw not in used:
+            used.add(pw)
+            out.append(pw)
+    return out
+
+
+def keystream(key: bytes, n: int) -> bytes:
+    out, ctr = b"", 0
+    while len(out) < n:
+        out += hashlib.sha256(key + b"YANI-CTR" + ctr.to_bytes(4, "big")).digest()
+        ctr += 1
+    return out[:n]
+
+
+def seal(key: bytes, plaintext: bytes) -> bytes:
+    ct = bytes(a ^ b for a, b in zip(plaintext, keystream(key, len(plaintext))))
+    tag = hmac.new(key, b"YANI-TAG" + ct, hashlib.sha256).digest()[:16]
+    return tag + ct
+
+
+def main():
+    K = (K1, K2, K3, K4)
+    build_table(K)
+
+    plaintexts = pick_targets(K, random.Random())
+    with open("shadow.txt", "w") as f:
+        f.write("# 306 號房 電子鎖 密語雜湊 (YaniHash-40)\\n")
+        f.write("# 格式: 住戶:hash(hex,5bytes)\\n")
+        for user, pw in zip(RESIDENTS, plaintexts):
+            f.write(f"{{user}}:{{yani40(pw.encode(), K).hex()}}\\n")
+
+    key = hashlib.sha256("|".join(plaintexts).encode()).digest()
+    with open("flag.enc", "wb") as f:
+        f.write(seal(key, open("flag.txt", "rb").read().strip()))
+
+
+if __name__ == "__main__":
+    main()
 '''
 
 

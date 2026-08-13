@@ -1,6 +1,6 @@
 """官方解 / 驗收 —— 只讀 dist/ 的檔案，模擬玩家視角。
 
-Step 1  從 dist/ 自我推導參數（PWLEN 讀 yanihash.py；m/TRUNC 讀表；t = N/m）
+Step 1  從 dist/ 自我推導參數（PWLEN 讀 gen_table.py；m/TRUNC 讀表；t = N/m）
 Step 2  用 3 條鏈驗證 K（單鏈只有 ~20.7 bit 約束，會有偽陽性）
 Step 3  呼叫 ./solve_ref（C）做彩虹表查詢
 Step 4  推導金鑰、驗 HMAC tag、解出 flag
@@ -22,7 +22,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 DIST = os.path.abspath(os.path.join(HERE, "..", "dist"))
 sys.path.insert(0, DIST)
 
-import yanihash as Y  # noqa: E402
+import gen_table as Y  # noqa: E402
 
 VERIFY_CHAINS = 3
 
