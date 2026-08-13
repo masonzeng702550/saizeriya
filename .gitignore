@@ -16,3 +16,6 @@ __pycache__/
 # 彩虹表：由 K 與參數決定性產生（正式規模 55.3 MB / 13.8 s），不進版控。
 # 重建：cd author && python3 build.py prod
 dist/nyan.tbl
+
+# 發布用打包（16 MB，由 dist/ 產生）
+room306.zip
